@@ -5,12 +5,49 @@ local TweenService      = game:GetService("TweenService")
 local VIM               = game:GetService("VirtualInputManager")
 local VirtualUser       = game:GetService("VirtualUser")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local HttpService       = game:GetService("HttpService")
+local TeleportService   = game:GetService("TeleportService")
+local GuiService        = game:GetService("GuiService")
 
 local LP
 repeat
     LP = Players.LocalPlayer
     task.wait()
 until LP
+
+-- FUNGSI SERVER HOP
+local function ServerHop()
+    warn("Tidak mendapatkan coin dalam 2 menit. Melakukan Server Hop...")
+    local placeId = game.PlaceId
+    local servers = {}
+    local req = request or http_request or (syn and syn.request) or (http and http.request)
+    
+    if req then
+        local success, result = pcall(function()
+            return req({
+                Url = string.format("https://games.roblox.com/v1/games/%s/servers/Public?sortOrder=Asc&limit=100", tostring(placeId)),
+                Method = "GET"
+            })
+        end)
+        
+        if success and result and result.Body then
+            local data = HttpService:JSONDecode(result.Body)
+            if data and data.data then
+                for _, v in ipairs(data.data) do
+                    if type(v) == "table" and v.playing < v.maxPlayers and v.id ~= game.JobId then
+                        table.insert(servers, v.id)
+                    end
+                end
+            end
+        end
+    end
+
+    if #servers > 0 then
+        TeleportService:TeleportToPlaceInstance(placeId, servers[math.random(1, #servers)], LP)
+    else
+        TeleportService:Teleport(placeId, LP)
+    end
+end
 
 -- AUTO JOIN
 local function TapUI(button)
@@ -88,6 +125,84 @@ LP.CharacterAdded:Connect(function()
 end)
 applyNoclip()
 
+-- COIN MONITOR, AUTO RESPAWN (COIN FULL) & SERVERHOP TIMER
+local lastCoinTime = os.time()
+
+local function isAlive()
+    local c = LP.Character
+    if not c then return false end
+    local h = c:FindFirstChildOfClass("Humanoid")
+    return h and h.Health > 0
+end
+
+local function respawnPlayer()
+    if isAlive() then
+        LP.Character.Humanoid.Health = 0
+    end
+end
+
+-- Deteksi Jumlah Coin & Respawn saat Penuh
+task.spawn(function()
+    while true do
+        task.wait(0.5)
+        pcall(function()
+            -- Cek teks UI Coin (Misal: "10/10" atau "40/40")
+            local mainGui = LP.PlayerGui:FindFirstChild("MainGUI")
+            if mainGui then
+                local coinLabel = mainGui:FindFirstChild("Game") 
+                    and mainGui.Game:FindFirstChild("Coin") 
+                    and mainGui.Game.Coin:FindFirstChild("CoinContainer")
+                    and mainGui.Game.Coin.CoinContainer:FindFirstChild("Coin")
+                
+                if coinLabel and coinLabel:IsA("TextLabel") then
+                    local current, max = coinLabel.Text:match("(%d+)%s*/%s*(%d+)")
+                    if current and max then
+                        if tonumber(current) >= tonumber(max) and tonumber(max) > 0 then
+                            respawnPlayer()
+                        end
+                    end
+                end
+            end
+
+            -- Cek alternatif via leaderstats/Data
+            local leaderstats = LP:FindFirstChild("leaderstats") or LP:FindFirstChild("Data")
+            if leaderstats then
+                local coinVal = leaderstats:FindFirstChild("Coins") or leaderstats:FindFirstChild("Coin")
+                local maxCoinVal = leaderstats:FindFirstChild("MaxCoins") or leaderstats:FindFirstChild("MaxCoin")
+                if coinVal and maxCoinVal and coinVal.Value >= maxCoinVal.Value and maxCoinVal.Value > 0 then
+                    respawnPlayer()
+                end
+            end
+        end)
+    end
+end)
+
+-- Monitor Perubahan Coin untuk Timer Server Hop
+local function watchCoinData()
+    local leaderstats = LP:WaitForChild("leaderstats", 5) or LP:WaitForChild("Data", 5)
+    if leaderstats then
+        for _, stat in ipairs(leaderstats:GetChildren()) do
+            if string.find(string.lower(stat.Name), "coin") then
+                stat:GetPropertyChangedSignal("Value"):Connect(function()
+                    lastCoinTime = os.time()
+                end)
+            end
+        end
+    end
+end
+task.spawn(watchCoinData)
+
+-- Checking loop untuk Server Hop jika timeout 2 menit
+task.spawn(function()
+    while true do
+        task.wait(5)
+        if os.time() - lastCoinTime >= 120 then
+            ServerHop()
+            break
+        end
+    end
+end)
+
 -- COIN AURA
 local AURA_RADIUS = 8
 local function touch(a, b)
@@ -129,6 +244,7 @@ task.spawn(function()
                 for _, part in ipairs(getCoinParts(getCoinContainers())) do
                     if (rootPos - part.Position).Magnitude <= AURA_RADIUS then
                         touch(root, part)
+                        lastCoinTime = os.time()
                     end
                 end
             end
@@ -173,14 +289,6 @@ local function tp(hp)
     t.Completed:Wait()
 end
 
-local function isAlive()
-    local c = LP.Character
-    if not c then return false end
-    local h = c:FindFirstChildOfClass("Humanoid")
-    return h and h.Health > 0
-end
-
--- AUTO FARM 
 local farmingEnabled = true
 
 task.spawn(function()
@@ -205,17 +313,137 @@ task.spawn(function()
     end
 end)
 
+-- AUTO VOTE MODULE
+local CONFIG_VOTE = {
+    Mode = 1, -- 0 = Off, 1 = Smallest, 2 = Biggest, 3 = Random
+    MaxVotes = 0,
+}
+
+local ORDER_MAPS = {
+    "Manor", "House 2", "Office 3", "Hospital 3", "Bank 2",
+    "Vampire's Castle", "Mansion 2", "WorkPlace", "Hotel 2",
+    "Farm House", "Police Station", "Factory", "Bio Lab",
+    "Research Facility", "Mil Base"
+}
+
+local function normalize(s)
+    s = string.lower(s or "")
+    s = s:gsub("%-", " ")
+    return s:match("^%s*(.-)%s*$") or s
+end
+
+local function rankMap(name)
+    local clean = normalize(name)
+    for i, map in ipairs(ORDER_MAPS) do
+        if clean == normalize(map) then return i end
+    end
+    for i, map in ipairs(ORDER_MAPS) do
+        if clean == normalize(map):gsub("%s+%d+$", "") then return i end
+    end
+    for i, map in ipairs(ORDER_MAPS) do
+        if clean:find(normalize(map), 1, true) then return i end
+    end
+    return #ORDER_MAPS + 1
+end
+
+local function getPads()
+    local lobby = workspace:FindFirstChild("Lobby")
+    local folder = lobby and lobby:FindFirstChild("VotePads")
+    if not folder then return {} end
+
+    local result = {}
+    for i = 1, 3 do
+        local pad = folder:FindFirstChild("VotePad" .. i)
+        local trigger = pad and pad:FindFirstChild("Pad")
+        local gui = pad and pad:FindFirstChild("VoteInfoGui")
+        local container = gui and gui:FindFirstChild("Container")
+        local label = container and container:FindFirstChild("MapName")
+
+        if trigger and gui and label then
+            table.insert(result, {
+                trigger = trigger,
+                gui = gui,
+                map = label.Text,
+            })
+        end
+    end
+    return result
+end
+
+local function votingOpen()
+    for _, pad in ipairs(getPads()) do
+        if pad.gui.Enabled then return true end
+    end
+    return false
+end
+
+local function choosePad(mode)
+    local pads = getPads()
+    if #pads == 0 then return nil end
+    if mode == 3 then return pads[math.random(1, #pads)] end
+
+    table.sort(pads, function(a, b)
+        local ra = rankMap(a.map)
+        local rb = rankMap(b.map)
+        return mode == 1 and (ra < rb) or (ra > rb)
+    end)
+    return pads[1]
+end
+
+local function insidePad(part, position)
+    local p = part.CFrame:PointToObjectSpace(position)
+    local h = part.Size * 0.5
+    return math.abs(p.X) <= h.X and math.abs(p.Y) <= h.Y and math.abs(p.Z) <= h.Z
+end
+
+task.spawn(function()
+    local votes = 0
+    local lastCharacter = nil
+
+    while true do
+        task.wait(0.25)
+        if CONFIG_VOTE.Mode < 1 or CONFIG_VOTE.Mode > 3 then continue end
+        if CONFIG_VOTE.MaxVotes > 0 and votes >= CONFIG_VOTE.MaxVotes then continue end
+        if not votingOpen() then
+            lastCharacter = nil
+            continue
+        end
+
+        local target = choosePad(CONFIG_VOTE.Mode)
+        if not target or not target.gui.Enabled then continue end
+
+        local character = LP.Character
+        if not character or character == lastCharacter then continue end
+
+        local root = character:FindFirstChild("HumanoidRootPart")
+        local humanoid = character:FindFirstChildOfClass("Humanoid")
+
+        if not root or not humanoid or humanoid.Health <= 0 then continue end
+
+        if not insidePad(target.trigger, root.Position) then
+            local destination = target.trigger.Position + Vector3.new(0, 1, 0)
+            root.CFrame = CFrame.new(destination) * root.CFrame.Rotation
+            root.AssemblyLinearVelocity = Vector3.zero
+        end
+
+        task.wait(0.25)
+
+        if character.Parent and humanoid.Health > 0 and target.gui.Parent and target.gui.Enabled and insidePad(target.trigger, root.Position) then
+            lastCharacter = character
+            votes = votes + 1
+            humanoid.Health = 0
+        end
+    end
+end)
+
 -- ANTI AFK
 LP.Idled:Connect(function()
     VirtualUser:CaptureController()
     VirtualUser:ClickButton2(Vector2.new())
 end)
 
--- AUTO REJOIN: teleport ulang jika pesan error Roblox berubah
-local GuiService = game:GetService("GuiService")
-local TeleportService = game:GetService("TeleportService")
-
-local function onErrorMessageChanged(errorMessage)
+-- AUTO REJOIN
+GuiService.ErrorMessageChanged:Connect(function(errorMessage)
     if errorMessage and errorMessage ~= "" then
         warn("Error detected: " .. tostring(errorMessage))
         task.wait(1)
@@ -223,6 +451,4 @@ local function onErrorMessageChanged(errorMessage)
             TeleportService:Teleport(game.PlaceId, LP)
         end)
     end
-end
-
-GuiService.ErrorMessageChanged:Connect(onErrorMessageChanged)
+end)
