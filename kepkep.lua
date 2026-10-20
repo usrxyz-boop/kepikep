@@ -180,7 +180,7 @@ local function isAlive()
     return h and h.Health > 0
 end
 
--- AUTO FARM (bisa dijeda saat reset)
+-- AUTO FARM 
 local farmingEnabled = true
 
 task.spawn(function()
@@ -203,68 +203,6 @@ task.spawn(function()
             end
         end
     end
-end)
-
--- AUTO RESET: jeda autofarm, reset karakter, lalu lanjutkan
-local isResetting = false
-
-local function resetCharacter()
-    if isResetting then return end
-    local char = LP.Character
-    if not char then return end
-    local h = char:FindFirstChildOfClass("Humanoid")
-    if not h or h.Health <= 0 then return end
-
-    isResetting = true
-    farmingEnabled = false
-
-    -- Hentikan tween yang mungkin masih berjalan pada karakter lama
-    pcall(function()
-        h.Health = 0
-    end)
-
-    -- Tunggu karakter baru muncul dan Humanoid hidup
-    local newChar = LP.Character
-    if newChar == char then
-        local ok, result = pcall(function()
-            return LP.CharacterAdded:Wait()
-        end)
-        if ok then newChar = result end
-    end
-
-    if newChar then
-        local newHumanoid = newChar:WaitForChild("Humanoid", 10)
-        if newHumanoid then
-            local deadline = os.clock() + 10
-            while newHumanoid.Health <= 0 and os.clock() < deadline do
-                task.wait(0.1)
-            end
-        end
-    end
-
-    task.wait(0.5)
-    farmingEnabled = true
-    isResetting = false
-end
-
--- Trigger reset saat coin penuh
-task.spawn(function()
-    pcall(function()
-        local remotes = ReplicatedStorage:WaitForChild("Remotes", 10)
-        if not remotes then return end
-        local gameplay = remotes:WaitForChild("Gameplay", 10)
-        if not gameplay then return end
-        local CoinCollected = gameplay:WaitForChild("CoinCollected", 10)
-        if not CoinCollected then return end
-
-        CoinCollected.OnClientEvent:Connect(function(_, currentCoins, maxCoins)
-            if typeof(currentCoins) == "number" and typeof(maxCoins) == "number" then
-                if currentCoins >= maxCoins then
-                    resetCharacter()
-                end
-            end
-        end)
-    end)
 end)
 
 -- ANTI AFK
