@@ -40,38 +40,6 @@ LP.CharacterAdded:Connect(function(c)
     Humanoid = c:WaitForChild("Humanoid")
 end)
 
--- NORENDER
-local blackScreenGui
-local function CreateBlackScreen()
-    if blackScreenGui and blackScreenGui.Parent then return end
-    blackScreenGui = Instance.new("ScreenGui")
-    blackScreenGui.Name = "NoRenderBackground"
-    blackScreenGui.DisplayOrder = -99999
-    blackScreenGui.IgnoreGuiInset = true
-    blackScreenGui.ResetOnSpawn = false
-    local f = Instance.new("Frame")
-    f.Size = UDim2.new(1, 0, 1, 0)
-    f.BackgroundColor3 = Color3.new(0, 0, 0)
-    f.BorderSizePixel = 0
-    f.Parent = blackScreenGui
-    local ok = pcall(function() blackScreenGui.Parent = game:GetService("CoreGui") end)
-    if not ok then
-        pcall(function() blackScreenGui.Parent = LP:WaitForChild("PlayerGui") end)
-    end
-end
-
-pcall(function() RunService:Set3dRenderingEnabled(false) end)
-CreateBlackScreen()
-
-LP.CharacterAdded:Connect(function()
-    task.wait(0.5)
-    pcall(function() RunService:Set3dRenderingEnabled(false) end)
-    CreateBlackScreen()
-end)
-
--- NOCLIP DISABLED
--- Keep character collisions enabled so the player can stand on the map.
--- The original NOCLIP block disabled CanCollide on character body parts,
 -- which can cause falling through the floor / into the void.
 
     local char = LP.Character
