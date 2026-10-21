@@ -1,20 +1,32 @@
-
-local Players           = game:GetService("Players")
-local RunService        = game:GetService("RunService")
-local Workspace         = game:GetService("Workspace")
-local TweenService      = game:GetService("TweenService")
-local VIM               = game:GetService("VirtualInputManager")
-local VirtualUser       = game:GetService("VirtualUser")
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local Workspace = game:GetService("Workspace")
+local TweenService = game:GetService("TweenService")
+local VIM = game:GetService("VirtualInputManager")
+local VirtualUser = game:GetService("VirtualUser")
+local TeleportService = game:GetService("TeleportService")
+local GuiService = game:GetService("GuiService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local TeleportService   = game:GetService("TeleportService")
-local LP                = Players.LocalPlayer
 
-while not LP do task.wait() end
+local LP = Players.LocalPlayer
+local Char = LP.Character or LP.CharacterAdded:Wait()
+local HRP = Char:WaitForChild("HumanoidRootPart")
+local Humanoid = Char:WaitForChild("Humanoid")
 
--- AUTO JOIN
-local function TapUI(button)
-    if not button then return end
-    local pos = button.AbsolutePosition + (button.AbsoluteSize / 2)
+LP.CharacterAdded:Connect(function(c)
+    Char, HRP, Humanoid = c, c:WaitForChild("HumanoidRootPart"), c:WaitForChild("Humanoid")
+end)
+
+-- 1. OPTIMASI & BLACKSCREEN BUILD-IN
+pcall(function() RunService:Set3dRenderingEnabled(false) end)
+local sg = Instance.new("ScreenGui", LP:WaitForChild("PlayerGui"))
+local fr = Instance.new("Frame", sg)
+fr.Size, fr.BackgroundColor3 = UDim2.new(1,0,1,0), Color3.new(0,0,0)
+
+-- 2. AUTO JOIN
+local function TapUI(btn)
+    if not btn then return end
+    local pos = btn.AbsolutePosition + (btn.AbsoluteSize / 2)
     VIM:SendMouseButtonEvent(pos.X, pos.Y, 0, true, game, 0)
     task.wait(0.05)
     VIM:SendMouseButtonEvent(pos.X, pos.Y, 0, false, game, 0)
@@ -28,265 +40,107 @@ task.spawn(function()
     until LP.PlayerGui:FindFirstChild("MainGUI")
 end)
 
--- CHARACTER REFS
-local Char = LP.Character or LP.CharacterAdded:Wait()
-local HRP = Char:WaitForChild("HumanoidRootPart")
-local Humanoid = Char:WaitForChild("Humanoid")
-
-LP.CharacterAdded:Connect(function(c)
-    Char = c
-    HRP = c:WaitForChild("HumanoidRootPart")
-    Humanoid = c:WaitForChild("Humanoid")
-end)
-
-pcall(function() RunService:Set3dRenderingEnabled(false) end)
-CreateBlackScreen()
-
-LP.CharacterAdded:Connect(function()
-    task.wait(0.5)
-    pcall(function() RunService:Set3dRenderingEnabled(false) end)
-    CreateBlackScreen()
-end)
-
--- NOCLIP
-local function applyNoclip()
-    local char = LP.Character
-    if not char then return end
-    for _, part in ipairs(char:GetDescendants()) do
-        if part:IsA("BasePart") and part.CanCollide then
-            part.CanCollide = false
+-- 3. NOCLIP
+RunService.Stepped:Connect(function()
+    if Char then
+        for _, part in ipairs(Char:GetChildren()) do
+            if part:IsA("BasePart") then part.CanCollide = false end
         end
     end
-end
-RunService.Stepped:Connect(applyNoclip)
-LP.CharacterAdded:Connect(function()
-    task.wait(0.1)
-    applyNoclip()
 end)
-applyNoclip()
 
--- COIN AURA
-local AURA_RADIUS = 8
-local function touch(a, b)
-    pcall(function()
-        firetouchinterest(a, b, 0)
-        firetouchinterest(a, b, 1)
-    end)
-end
-
-local function getCoinContainers()
-    local out = {}
-    for _, map in ipairs(Workspace:GetChildren()) do
-        local c = map:FindFirstChild("CoinContainer")
-        if c then table.insert(out, c) end
-    end
-    return out
-end
-
-local function getCoinParts(containers)
-    local out = {}
-    for _, c in ipairs(containers) do
-        for _, d in ipairs(c:GetDescendants()) do
-            if d:IsA("BasePart") and d:FindFirstChild("TouchInterest") then
-                table.insert(out, d)
-            end
+-- 4. COIN AURA & MAP DETECTOR
+local function GetMap()
+    for _, obj in ipairs(Workspace:GetChildren()) do
+        if obj:GetAttribute("MapID") and obj:FindFirstChild("CoinContainer") then
+            return obj
         end
     end
-    return out
+    return nil
 end
 
 RunService.Heartbeat:Connect(function()
-    local char = LP.Character
-    if not char then return end
-    local root = char:FindFirstChild("HumanoidRootPart")
-    if not root then return end
-    local rootPos = root.Position
-    for _, part in ipairs(getCoinParts(getCoinContainers())) do
-        if (rootPos - part.Position).Magnitude <= AURA_RADIUS then
-            touch(root, part)
+    if not HRP then return end
+    local map = GetMap()
+    if not map then return end
+
+    for _, coin in ipairs(map.CoinContainer:GetChildren()) do
+        if (HRP.Position - coin.Position).Magnitude <= 8 then
+            pcall(function()
+                firetouchinterest(HRP, coin, 0)
+                firetouchinterest(HRP, coin, 1)
+            end)
         end
     end
 end)
 
--- AUTO FARM
-local function GetMap()
-    while true do
-        for _, obj in ipairs(workspace:GetChildren()) do
-            if obj:GetAttribute("MapID") and obj:FindFirstChild("CoinContainer") then
-                return obj
-            end
-        end
-        task.wait()
-    end
-end
-
-local function getNearest()
+-- 5. AUTO FARM (TWEEN COIN)
+local function getNearestCoin()
     local map = GetMap()
-    if not map then return nil end
+    if not map then return end
     local closest, dist = nil, math.huge
     for _, coin in ipairs(map.CoinContainer:GetChildren()) do
         local v = coin:FindFirstChild("CoinVisual")
         if v and not v:GetAttribute("Collected") then
             local d = (HRP.Position - coin.Position).Magnitude
             if d < dist then
-                closest = coin
-                dist = d
+                closest, dist = coin, d
             end
         end
     end
     return closest
 end
 
-local function tp(hp)
-    if not Humanoid or not HRP or not hp then return end
-    Humanoid:ChangeState(11)
-    local d = (HRP.Position - hp.Position).Magnitude
-    local t = TweenService:Create(HRP, TweenInfo.new(d / 15, Enum.EasingStyle.Linear), {CFrame = hp.CFrame})
-    t:Play()
-    t.Completed:Wait()
-end
-
 task.spawn(function()
     while true do
-        local target = getNearest()
-        if target and LP:GetAttribute("Alive") then
-            tp(target)
-            local v = target:FindFirstChild("CoinVisual")
-            while v and not v:GetAttribute("Collected") and v.Parent do
-                if not LP:GetAttribute("Alive") then break end
-                local n = getNearest()
-                if n and n ~= target then break end
-                task.wait()
+        task.wait(0.1)
+        if LP:GetAttribute("Alive") and HRP and Humanoid then
+            local target = getNearestCoin()
+            if target then
+                Humanoid:ChangeState(Enum.HumanoidStateType.Physics)
+                local dist = (HRP.Position - target.Position).Magnitude
+                local tween = TweenService:Create(HRP, TweenInfo.new(dist / 15, Enum.EasingStyle.Linear), {CFrame = target.CFrame})
+                tween:Play()
+                
+                repeat task.wait() until not target or not target.Parent or target:FindFirstChild("CoinVisual"):GetAttribute("Collected") or not LP:GetAttribute("Alive")
+                tween:Cancel()
             end
-        else
-            task.wait(0.5)
         end
     end
 end)
 
--- AUTO RESET
-local isResetting = false
-
-local function resetCharacter()
-    if isResetting then return end
-    local char = LP.Character
-    if not char then return end
-    local h = char:FindFirstChildOfClass("Humanoid")
-    if not h or h.Health <= 0 then return end
-
-    isResetting = true
-
-    -- Metode utama
-    pcall(function() h.Health = 0 end)
-    pcall(function() h:TakeDamage(math.huge) end)
-
-    task.wait(0.3)
-
-    -- Fallback kalau masih hidup
-    if h.Health > 0 and h.Parent then
-        pcall(function() h:ChangeState(Enum.HumanoidStateType.Dead) end)
-        pcall(function() char:BreakJoints() end)
-    end
-
-    task.wait(0.5)
-    isResetting = false
-end
-
--- Reset flag saat character respawn
-LP.CharacterAdded:Connect(function()
-    task.wait(1)
-    isResetting = false
-end)
-
--- COIN TIMER + AUTO RESET
+-- 6. TIMEOUT & REJOIN
 local lastCoinTime = tick()
-local COIN_TIMEOUT = 60
 local rejoining = false
 
-task.spawn(function()
-    local remotes = game:GetService("ReplicatedStorage")
-        :WaitForChild("Remotes")
-    local gameplay = remotes:WaitForChild("Gameplay")
-    local CoinCollected = gameplay:WaitForChild("CoinCollected")
-
-    CoinCollected.OnClientEvent:Connect(function(...)
-        local args = {...}
-
-        print("[COIN EVENT] Terpanggil")
-        for i, value in ipairs(args) do
-            print("[COIN EVENT]", i, typeof(value), tostring(value))
-        end
-
+pcall(function()
+    ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("Gameplay"):WaitForChild("CoinCollected").OnClientEvent:Connect(function()
         lastCoinTime = tick()
-
-        -- TODO: kondisi koin penuh perlu memakai
-        -- argumen yang sudah dipastikan benar.
     end)
 end)
 
--- AUTO REJOIN
 local function rejoin()
     if rejoining then return end
     rejoining = true
-
-    pcall(function()
-        game:GetService("TeleportService"):TeleportToPlaceInstance(
-            game.PlaceId, game.JobId, game:GetService("Players").LocalPlayer
-        )
-    end)
-
-    task.wait(3)
-
-    pcall(function()
-        game:GetService("TeleportService"):Teleport(
-            game.PlaceId, game:GetService("Players").LocalPlayer
-        )
-    end)
+    if not pcall(function() TeleportService:TeleportToPlaceInstance(game.PlaceId, game.JobId, LP) end) then
+        TeleportService:Teleport(game.PlaceId, LP)
+    end
 end
 
 task.spawn(function()
-    while true do
-        task.wait(5)
-
-        if tick() - lastCoinTime >= COIN_TIMEOUT then
-            lastCoinTime = tick()
+    while task.wait(5) do
+        if tick() - lastCoinTime >= 60 then
             rejoin()
         end
     end
 end)
 
-task.spawn(function()
-    while true do
-        task.wait(5)
-        if tick() - lastCoinTime >= COIN_TIMEOUT then
-            lastCoinTime = tick() -- cegah spam rejoin
-            rejoin()
-        end
-    end
-end)
-
--- ANTI AFK
+-- 7. ANTI AFK & AUTO RECONNECT ERROR
 LP.Idled:Connect(function()
     VirtualUser:CaptureController()
     VirtualUser:ClickButton2(Vector2.new())
 end)
 
--- msk
-local GuiService = game:GetService("GuiService")
-‎local Players = game:GetService("Players")
-‎local TeleportService = game:GetService("TeleportService")
-‎
-‎local player = Players.LocalPlayer
-‎
-‎local function onErrorMessageChanged(errorMessage)
-‎    if errorMessage and errorMessage ~= "" then
-‎        print("Error detected: " .. errorMessage)
-‎
-‎        if player then
-‎            wait()
-‎            TeleportService:Teleport(game.PlaceId, player)
-‎        end
-‎    end
-‎end
-‎
-‎GuiService.ErrorMessageChanged:Connect(onErrorMessageChanged)
+GuiService.ErrorMessageChanged:Connect(function(msg)
+    if msg and msg ~= "" then rejoin() end
+end)
