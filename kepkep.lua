@@ -23,7 +23,7 @@ end
 
 task.spawn(function()
     repeat
-        task.wait(5)
+        task.wait(0.5)
         pcall(function() TapUI(LP.PlayerGui.DeviceSelect.Container.Tablet.Button) end)
         pcall(function() TapUI(LP.PlayerGui.Join.Friends.Play) end)
     until LP.PlayerGui:FindFirstChild("MainGUI")
@@ -60,9 +60,10 @@ end
 
 local function getCoinContainers()
     local out = {}
-    for _, map in ipairs(Workspace:GetChildren()) do
-        local c = map:FindFirstChild("CoinContainer")
-        if c then table.insert(out, c) end
+    for _, obj in ipairs(Workspace:GetDescendants()) do
+        if obj.Name == "CoinContainer" then
+            table.insert(out, obj)
+        end
     end
     return out
 end
@@ -136,25 +137,43 @@ local function isCoinCollected(coin, visual)
 end
 
 local function getNearest()
-    local containers = getCoinContainers()
-    if #containers == 0 then return nil, nil, nil end
     if not HRP or not HRP.Parent then return nil, nil, nil end
 
-    local closest, closestVisual, closestCoin
-    local dist = math.huge
-    local MAX_TARGET_DISTANCE = 250
+    local containers = getCoinContainers()
+    if #containers == 0 then return nil, nil, nil end
 
+    local MAX_TARGET_DISTANCE = 250
+    local selectedContainer = nil
+    local selectedContainerDistance = math.huge
+
+    -- First choose the container with the nearest eligible coin.
     for _, container in ipairs(containers) do
         for _, coin in ipairs(container:GetChildren()) do
             local targetPart, visual = getCoinTarget(coin)
             if targetPart and not isCoinCollected(coin, visual) then
                 local d = (HRP.Position - targetPart.Position).Magnitude
-                if d > 4 and d <= MAX_TARGET_DISTANCE and d < dist then
-                    closest = targetPart
-                    closestVisual = visual
-                    closestCoin = coin
-                    dist = d
+                if d > 4 and d <= MAX_TARGET_DISTANCE and d < selectedContainerDistance then
+                    selectedContainer = container
+                    selectedContainerDistance = d
                 end
+            end
+        end
+    end
+
+    if not selectedContainer then return nil, nil, nil end
+
+    -- Then choose the nearest coin in that one container only.
+    local closest, closestVisual, closestCoin
+    local closestDistance = math.huge
+    for _, coin in ipairs(selectedContainer:GetChildren()) do
+        local targetPart, visual = getCoinTarget(coin)
+        if targetPart and not isCoinCollected(coin, visual) then
+            local d = (HRP.Position - targetPart.Position).Magnitude
+            if d > 4 and d <= MAX_TARGET_DISTANCE and d < closestDistance then
+                closest = targetPart
+                closestVisual = visual
+                closestCoin = coin
+                closestDistance = d
             end
         end
     end
@@ -217,7 +236,7 @@ task.spawn(function()
             if targetPart then
                 tp(targetPart)
                 if isCoinCollected(coin, visual) or not (coin and coin.Parent) then
-                    -- Already collected/removed
+                    -- Already collected/removed: immediately choose the next nearest coin.
                     continue
                 end
                 waitForCoinDone(coin, visual)
@@ -270,6 +289,7 @@ task.spawn(function()
 end)
 
 -- ANTI AFK
+repeat
 LP.Idled:Connect(function()
     VirtualUser:CaptureController()
     VirtualUser:ClickButton2(Vector2.new())
