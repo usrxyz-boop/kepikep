@@ -47,7 +47,6 @@ local function CreateBlackScreen()
     blackScreenGui = Instance.new("ScreenGui")
     blackScreenGui.Name = "NoRenderBackground"
     blackScreenGui.DisplayOrder = -99999
-    blackScreenGui.IgnoreGuiInset = true
     blackScreenGui.ResetOnSpawn = false
     local f = Instance.new("Frame")
     f.Size = UDim2.new(1, 0, 1, 0)
