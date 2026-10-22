@@ -23,7 +23,7 @@ end
 
 task.spawn(function()
     repeat
-        task.wait(0.5)
+        task.wait(5)
         pcall(function() TapUI(LP.PlayerGui.DeviceSelect.Container.Tablet.Button) end)
         pcall(function() TapUI(LP.PlayerGui.Join.Friends.Play) end)
     until LP.PlayerGui:FindFirstChild("MainGUI")
