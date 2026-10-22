@@ -40,6 +40,16 @@ LP.CharacterAdded:Connect(function(c)
     Humanoid = c:WaitForChild("Humanoid")
 end)
 
+pcall(function() RunService:Set3dRenderingEnabled(false) end)
+CreateBlackScreen()
+
+LP.CharacterAdded:Connect(function()
+    task.wait(0.5)
+    pcall(function() RunService:Set3dRenderingEnabled(false) end)
+    CreateBlackScreen()
+end)
+
+
 -- COIN AURA
 local AURA_RADIUS = 8
 local function touch(a, b)
@@ -133,10 +143,8 @@ local function getNearest()
 
     local closest, closestVisual, closestCoin
     local dist = math.huge
-    local MAX_TARGET_DISTANCE = 250
+    local MAX_TARGET_DISTANCE = 50
 
-    -- Search every map-level CoinContainer and choose the nearest valid coin,
-    -- rather than trusting the first CoinContainer found in all descendants.
     for _, container in ipairs(containers) do
         for _, coin in ipairs(container:GetChildren()) do
             local targetPart, visual = getCoinTarget(coin)
@@ -159,10 +167,11 @@ local function tp(targetPart)
     if not Humanoid or not HRP or not targetPart then return end
     if not HRP.Parent or not targetPart.Parent or Humanoid.Health <= 0 then return end
 
-    local d = (HRP.Position - targetPart.Position).Magnitude
+    -- Fast movement: fixed 0.5-second tween, similar to the provided example.
+    -- Keep a small vertical offset so the character does not target the coin's center.
     local tween = TweenService:Create(
         HRP,
-        TweenInfo.new(math.max(d / 25, 0.1), Enum.EasingStyle.Linear),
+        TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
         {CFrame = targetPart.CFrame + Vector3.new(0, 3, 0)}
     )
     tween:Play()
