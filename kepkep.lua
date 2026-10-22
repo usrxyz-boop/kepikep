@@ -146,14 +146,13 @@ local function getNearest()
     local closest, closestVisual, closestCoin
     local dist = math.huge
     local MAX_TARGET_DISTANCE = 250
-    local MIN_TARGET_DISTANCE = 6 -- skip coins this close to the player
 
     for _, container in ipairs(containers) do
         for _, coin in ipairs(container:GetChildren()) do
             local targetPart, visual = getCoinTarget(coin)
             if targetPart and not isCoinCollected(coin, visual) then
                 local d = (HRP.Position - targetPart.Position).Magnitude
-                if d > MIN_TARGET_DISTANCE and d <= MAX_TARGET_DISTANCE and d < dist then
+                if d <= MAX_TARGET_DISTANCE and d < dist then
                     closest = targetPart
                     closestVisual = visual
                     closestCoin = coin
@@ -177,7 +176,16 @@ local function tp(targetPart)
         {CFrame = targetPart.CFrame + Vector3.new(0, 3, 0)}
     )
     tween:Play()
-    tween.Completed:Wait()
+
+    -- Timeout so a cancelled tween can't freeze the farm loop
+    local finished = false
+    local conn = tween.Completed:Connect(function() finished = true end)
+    local deadline = os.clock() + math.max(d / 25, 0.1) + 2
+    while not finished and os.clock() < deadline do
+        task.wait()
+    end
+    conn:Disconnect()
+    if not finished then tween:Cancel() end
 end
 
 local function isAlive()
