@@ -49,6 +49,25 @@ LP.CharacterAdded:Connect(function()
     CreateBlackScreen()
 end)
 
+-- NOCLIP
+local function applyNoclip()
+    local char = LP.Character
+    if not char then return end
+    for _, part in ipairs(char:GetDescendants()) do
+        if part:IsA("BasePart") and part.CanCollide then
+            if part.Name ~= "HumanoidRootPart" then
+                part.CanCollide = false
+            end
+        end
+    end
+end
+RunService.Stepped:Connect(applyNoclip)
+LP.CharacterAdded:Connect(function()
+    task.wait(0.1)
+    applyNoclip()
+end)
+applyNoclip()
+
 -- COIN AURA
 local AURA_RADIUS = 8
 local function touch(a, b)
@@ -60,10 +79,9 @@ end
 
 local function getCoinContainers()
     local out = {}
-    for _, obj in ipairs(Workspace:GetDescendants()) do
-        if obj.Name == "CoinContainer" then
-            table.insert(out, obj)
-        end
+    for _, map in ipairs(Workspace:GetChildren()) do
+        local c = map:FindFirstChild("CoinContainer")
+        if c then table.insert(out, c) end
     end
     return out
 end
@@ -100,112 +118,58 @@ end)
 
 -- AUTO FARM
 local function GetMap()
-    -- Use the same map-level lookup as Coin Aura, not the first arbitrary descendant.
-    local containers = getCoinContainers()
-    for _, container in ipairs(containers) do
-        if #container:GetChildren() > 0 then
-            return container
+    for _, obj in ipairs(Workspace:GetChildren()) do
+        if obj:GetAttribute("MapID") and obj:FindFirstChild("CoinContainer") then
+            return obj
         end
     end
     return nil
 end
 
-local function getCoinTarget(coin)
-    if not coin or not coin.Parent then return nil, nil end
-
-    local visual = coin:FindFirstChild("CoinVisual", true)
-    local targetPart
-
-    if coin:IsA("BasePart") then
-        targetPart = coin
-    elseif coin:IsA("Model") then
-        targetPart = coin.PrimaryPart or (visual and visual:IsA("BasePart") and visual)
-            or coin:FindFirstChildWhichIsA("BasePart", true)
-    else
-        targetPart = coin:FindFirstChildWhichIsA("BasePart", true)
-    end
-
-    if not targetPart then return nil, visual end
-    return targetPart, visual
-end
-
-local function isCoinCollected(coin, visual)
-    if not coin or not coin.Parent then return true end
-    if coin:GetAttribute("Collected") == true then return true end
-    if visual and visual:GetAttribute("Collected") == true then return true end
-    return false
-end
-
 local function getNearest()
-    if not HRP or not HRP.Parent then return nil, nil, nil end
+    local map = GetMap()
+    if not map then return nil end
+    if not HRP or not HRP.Parent then return nil end
 
-    local containers = getCoinContainers()
-    if #containers == 0 then return nil, nil, nil end
+    local closest, dist = nil, math.huge
+    for _, coin in ipairs(map.CoinContainer:GetChildren()) do
+        local visual = coin:FindFirstChild("CoinVisual")
+        if visual and not visual:GetAttribute("Collected") then
+            local part
+            if coin:IsA("BasePart") then
+                part = coin
+            elseif coin:IsA("Model") then
+                part = coin.PrimaryPart or coin:FindFirstChildWhichIsA("BasePart", true)
+            else
+                part = coin:FindFirstChildWhichIsA("BasePart", true)
+            end
 
-    local MAX_TARGET_DISTANCE = 250
-    local selectedContainer = nil
-    local selectedContainerDistance = math.huge
-
-    -- First choose the container with the nearest eligible coin.
-    for _, container in ipairs(containers) do
-        for _, coin in ipairs(container:GetChildren()) do
-            local targetPart, visual = getCoinTarget(coin)
-            if targetPart and not isCoinCollected(coin, visual) then
-                local d = (HRP.Position - targetPart.Position).Magnitude
-                if d > 4 and d <= MAX_TARGET_DISTANCE and d < selectedContainerDistance then
-                    selectedContainer = container
-                    selectedContainerDistance = d
+            if part then
+                local d = (HRP.Position - part.Position).Magnitude
+                -- Skip coins 4 studs away or closer; keep choosing the nearest
+                -- eligible coin in the active map, not a coin in another map.
+                if d > 4 and d < dist then
+                    closest = part
+                    dist = d
                 end
             end
         end
     end
-
-    if not selectedContainer then return nil, nil, nil end
-
-    -- Then choose the nearest coin in that one container only.
-    local closest, closestVisual, closestCoin
-    local closestDistance = math.huge
-    for _, coin in ipairs(selectedContainer:GetChildren()) do
-        local targetPart, visual = getCoinTarget(coin)
-        if targetPart and not isCoinCollected(coin, visual) then
-            local d = (HRP.Position - targetPart.Position).Magnitude
-            if d > 4 and d <= MAX_TARGET_DISTANCE and d < closestDistance then
-                closest = targetPart
-                closestVisual = visual
-                closestCoin = coin
-                closestDistance = d
-            end
-        end
-    end
-
-    return closest, closestVisual, closestCoin
+    return closest
 end
 
-local function tp(targetPart)
-    if not Humanoid or not HRP or not targetPart then return end
-    if not HRP.Parent or not targetPart.Parent or Humanoid.Health <= 0 then return end
+local function tp(hp)
+    if not Humanoid or not HRP or not hp then return end
+    if not HRP.Parent or not hp.Parent or Humanoid.Health <= 0 then return end
 
-    local d = (HRP.Position - targetPart.Position).Magnitude
+    local d = (HRP.Position - hp.Position).Magnitude
     local tween = TweenService:Create(
         HRP,
         TweenInfo.new(math.max(d / 25, 0.1), Enum.EasingStyle.Linear),
-        {CFrame = targetPart.CFrame + Vector3.new(0, 3, 0)}
+        {CFrame = hp.CFrame}
     )
     tween:Play()
-
-    -- Avoid waiting indefinitely if the target disappears or the character respawns.
-    local started = os.clock()
-    while tween.PlaybackState == Enum.PlaybackState.Playing
-        and targetPart.Parent
-        and HRP.Parent
-        and Humanoid and Humanoid.Health > 0
-        and (os.clock() - started) < math.max(d / 25, 0.1) + 1 do
-        task.wait(0.05)
-    end
-
-    if tween.PlaybackState == Enum.PlaybackState.Playing then
-        pcall(function() tween:Cancel() end)
-    end
+    tween.Completed:Wait()
 end
 
 local function isAlive()
@@ -215,36 +179,19 @@ local function isAlive()
     return h ~= nil and h.Health > 0
 end
 
-local function waitForCoinDone(coin, visual)
-    if not coin then return end
-
-    local started = os.clock()
-    local timeout = 3
-
-    while isAlive()
-        and coin.Parent
-        and not isCoinCollected(coin, visual)
-        and (os.clock() - started) < timeout do
-        task.wait(0.05)
-    end
-end
-
 task.spawn(function()
     while true do
-        if isAlive() then
-            local targetPart, visual, coin = getNearest()
-            if targetPart then
-                tp(targetPart)
-                if isCoinCollected(coin, visual) or not (coin and coin.Parent) then
-                    -- Already collected/removed: immediately choose the next nearest coin.
-                    continue
-                end
-                waitForCoinDone(coin, visual)
+        if not isAlive() then
+            task.wait(0.5)
+        else
+            local target = getNearest()
+            if target then
+                tp(target)
+                -- Recheck immediately after movement; if the coin is still there,
+                -- the next loop picks the nearest eligible target again.
             else
                 task.wait(0.15)
             end
-        else
-            task.wait(0.15)
         end
     end
 end)
@@ -289,7 +236,6 @@ task.spawn(function()
 end)
 
 -- ANTI AFK
-repeat
 LP.Idled:Connect(function()
     VirtualUser:CaptureController()
     VirtualUser:ClickButton2(Vector2.new())
