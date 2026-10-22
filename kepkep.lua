@@ -40,6 +40,26 @@ LP.CharacterAdded:Connect(function(c)
     Humanoid = c:WaitForChild("Humanoid")
 end)
 
+-- NORENDER
+local blackScreenGui
+local function CreateBlackScreen()
+    if blackScreenGui and blackScreenGui.Parent then return end
+    blackScreenGui = Instance.new("ScreenGui")
+    blackScreenGui.Name = "NoRenderBackground"
+    blackScreenGui.DisplayOrder = -99999
+    blackScreenGui.IgnoreGuiInset = true
+    blackScreenGui.ResetOnSpawn = false
+    local f = Instance.new("Frame")
+    f.Size = UDim2.new(1, 0, 1, 0)
+    f.BackgroundColor3 = Color3.new(0, 0, 0)
+    f.BorderSizePixel = 0
+    f.Parent = blackScreenGui
+    local ok = pcall(function() blackScreenGui.Parent = game:GetService("CoreGui") end)
+    if not ok then
+        pcall(function() blackScreenGui.Parent = LP:WaitForChild("PlayerGui") end)
+    end
+end
+
 pcall(function() RunService:Set3dRenderingEnabled(false) end)
 CreateBlackScreen()
 
@@ -97,7 +117,7 @@ task.spawn(function()
     end
 end)
 
--- AUTO FARM (consistent map/container lookup)
+-- AUTO FARM
 local function GetMap()
     -- Use the same map-level lookup as Coin Aura, not the first arbitrary descendant.
     local containers = getCoinContainers()
@@ -173,7 +193,20 @@ local function tp(targetPart)
         {CFrame = targetPart.CFrame + Vector3.new(0, 3, 0)}
     )
     tween:Play()
-    tween.Completed:Wait()
+
+    -- Avoid waiting indefinitely if the target disappears or the character respawns.
+    local started = os.clock()
+    while tween.PlaybackState == Enum.PlaybackState.Playing
+        and targetPart.Parent
+        and HRP.Parent
+        and Humanoid and Humanoid.Health > 0
+        and (os.clock() - started) < math.max(d / 25, 0.1) + 1 do
+        task.wait(0.05)
+    end
+
+    if tween.PlaybackState == Enum.PlaybackState.Playing then
+        pcall(function() tween:Cancel() end)
+    end
 end
 
 local function isAlive()
@@ -186,38 +219,15 @@ end
 local function waitForCoinDone(coin, visual)
     if not coin then return end
 
-    local signal = Instance.new("BindableEvent")
-    local connections = {}
-    local timedOut = false
-
-    local function wake()
-        signal:Fire()
-    end
-
-    table.insert(connections, coin:GetAttributeChangedSignal("Collected"):Connect(wake))
-    table.insert(connections, coin.AncestryChanged:Connect(wake))
-    if visual then
-        table.insert(connections, visual:GetAttributeChangedSignal("Collected"):Connect(wake))
-        table.insert(connections, visual.AncestryChanged:Connect(wake))
-    end
-
-    -- Timeout flag prevents
-    task.delay(3, function()
-        timedOut = true
-        wake()
-    end)
+    local started = os.clock()
+    local timeout = 3
 
     while isAlive()
         and coin.Parent
         and not isCoinCollected(coin, visual)
-        and not timedOut do
-        signal.Event:Wait()
+        and (os.clock() - started) < timeout do
+        task.wait(0.05)
     end
-
-    for _, connection in ipairs(connections) do
-        connection:Disconnect()
-    end
-    signal:Destroy()
 end
 
 task.spawn(function()
@@ -227,7 +237,7 @@ task.spawn(function()
             if targetPart then
                 tp(targetPart)
                 if isCoinCollected(coin, visual) or not (coin and coin.Parent) then
-                    -- Already collected/removed: immediately choose the next nearest coin.
+                    -- Already collected/removed
                     continue
                 end
                 waitForCoinDone(coin, visual)
