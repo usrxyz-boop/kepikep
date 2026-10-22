@@ -49,7 +49,6 @@ LP.CharacterAdded:Connect(function()
     CreateBlackScreen()
 end)
 
-
 -- COIN AURA
 local AURA_RADIUS = 8
 local function touch(a, b)
@@ -143,14 +142,14 @@ local function getNearest()
 
     local closest, closestVisual, closestCoin
     local dist = math.huge
-    local MAX_TARGET_DISTANCE = 50
+    local MAX_TARGET_DISTANCE = 250
 
     for _, container in ipairs(containers) do
         for _, coin in ipairs(container:GetChildren()) do
             local targetPart, visual = getCoinTarget(coin)
             if targetPart and not isCoinCollected(coin, visual) then
                 local d = (HRP.Position - targetPart.Position).Magnitude
-                if d <= MAX_TARGET_DISTANCE and d < dist then
+                if d > 4 and d <= MAX_TARGET_DISTANCE and d < dist then
                     closest = targetPart
                     closestVisual = visual
                     closestCoin = coin
@@ -167,11 +166,10 @@ local function tp(targetPart)
     if not Humanoid or not HRP or not targetPart then return end
     if not HRP.Parent or not targetPart.Parent or Humanoid.Health <= 0 then return end
 
-    -- Fast movement: fixed 0.5-second tween, similar to the provided example.
-    -- Keep a small vertical offset so the character does not target the coin's center.
+    local d = (HRP.Position - targetPart.Position).Magnitude
     local tween = TweenService:Create(
         HRP,
-        TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+        TweenInfo.new(math.max(d / 25, 0.1), Enum.EasingStyle.Linear),
         {CFrame = targetPart.CFrame + Vector3.new(0, 3, 0)}
     )
     tween:Play()
@@ -185,19 +183,59 @@ local function isAlive()
     return h ~= nil and h.Health > 0
 end
 
+local function waitForCoinDone(coin, visual)
+    if not coin then return end
+
+    local signal = Instance.new("BindableEvent")
+    local connections = {}
+    local timedOut = false
+
+    local function wake()
+        signal:Fire()
+    end
+
+    table.insert(connections, coin:GetAttributeChangedSignal("Collected"):Connect(wake))
+    table.insert(connections, coin.AncestryChanged:Connect(wake))
+    if visual then
+        table.insert(connections, visual:GetAttributeChangedSignal("Collected"):Connect(wake))
+        table.insert(connections, visual.AncestryChanged:Connect(wake))
+    end
+
+    -- Timeout flag prevents
+    task.delay(3, function()
+        timedOut = true
+        wake()
+    end)
+
+    while isAlive()
+        and coin.Parent
+        and not isCoinCollected(coin, visual)
+        and not timedOut do
+        signal.Event:Wait()
+    end
+
+    for _, connection in ipairs(connections) do
+        connection:Disconnect()
+    end
+    signal:Destroy()
+end
+
 task.spawn(function()
     while true do
-        task.wait(0.15)
         if isAlive() then
             local targetPart, visual, coin = getNearest()
             if targetPart then
                 tp(targetPart)
-                local deadline = os.clock() + 3
-                while coin and coin.Parent and not isCoinCollected(coin, visual) and os.clock() < deadline do
-                    if not isAlive() then break end
-                    task.wait(0.1)
+                if isCoinCollected(coin, visual) or not (coin and coin.Parent) then
+                    -- Already collected/removed: immediately choose the next nearest coin.
+                    continue
                 end
+                waitForCoinDone(coin, visual)
+            else
+                task.wait(0.15)
             end
+        else
+            task.wait(0.15)
         end
     end
 end)
