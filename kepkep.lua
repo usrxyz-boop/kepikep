@@ -227,12 +227,19 @@ task.spawn(function()
                 hum:ChangeState(11)
             end)
 
-            local start = root.Position
-            local goal = part.Position
-            local dir = Vector3.new(goal.X - start.X, 0, goal.Z - start.Z)
-            local target = dir.Magnitude > 0.01
-                and CFrame.lookAt(goal, goal + dir)
-                or CFrame.new(goal)
+local start = root.Position
+local goal = part.Position
+
+local flatGoal = Vector3.new(goal.X, start.Y, goal.Z)
+local dir = Vector3.new(
+    flatGoal.X - start.X,
+    0,
+    flatGoal.Z - start.Z
+)
+
+local target = dir.Magnitude > 0.01
+    and CFrame.lookAt(flatGoal, flatGoal + dir)
+    or root.CFrame
 
             tween = TweenService:Create(
                 root,
