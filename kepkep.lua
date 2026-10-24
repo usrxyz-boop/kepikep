@@ -229,29 +229,33 @@ task.spawn(function()
 
 local start = root.Position
 local goal = part.Position
-
-local flatGoal = Vector3.new(goal.X, start.Y, goal.Z)
 local dir = Vector3.new(
-    flatGoal.X - start.X,
+    goal.X - start.X,
     0,
-    flatGoal.Z - start.Z
+    goal.Z - start.Z
 )
 
-local target = dir.Magnitude > 0.01
-    and CFrame.lookAt(flatGoal, flatGoal + dir)
-    or root.CFrame
+if dir.Magnitude > 0.1 then
+    local target = CFrame.lookAt(
+        Vector3.new(goal.X, start.Y, goal.Z),
+        Vector3.new(goal.X, start.Y, goal.Z) + dir
+    )
 
-            tween = TweenService:Create(
-                root,
-                TweenInfo.new(
-                    math.max((start - goal).Magnitude / SPEED, 0.05),
-                    Enum.EasingStyle.Linear
-                ),
-                {CFrame = target}
-            )
+    local duration = math.max(
+        dir.Magnitude / SPEED,
+        0.1
+    )
 
-            tween:Play()
-            local began = os.clock()
+    local tween = TweenService:Create(
+        root,
+        TweenInfo.new(duration, Enum.EasingStyle.Linear),
+        {CFrame = target}
+    )
+
+    tween:Play()
+    task.wait(math.min(duration, TIMEOUT))
+    tween:Cancel()
+end
 
             while active() and os.clock() - began < TIMEOUT do
                 if not farmEnabled or hum.Health <= 0 then break end
