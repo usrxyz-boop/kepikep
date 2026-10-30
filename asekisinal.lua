@@ -5,23 +5,15 @@ while not Players.LocalPlayer do task.wait() end
 local player = Players.LocalPlayer
 
 local autoKillEnabled = true
-local ignoredNames = {
-    ["alamak942"] = true,
-    ["ets_gakenaaaaaaaaaaa"] = true
-}
-
+local ignoredNames = { ["alamak942"] = true, ["ets_gakenaaaaaaaaaaa"] = true }
 local activeKillName = nil
 local targetLabel = nil
 local roundId = 0
 local roundStarted = false
 local killThreadActive = false
 
--- Diaktifkan untuk melihat pesan error/proses di F9 Console
-local DEBUG = true
-
-local function log(...)
-    if DEBUG then print("[Assassin Auto]", ...) end
-end
+local DEBUG = false
+local function log(...) if DEBUG then print("[Assassin Auto]", ...) end end
 
 local STATE = { IDLE = "IDLE", KILLING = "KILLING", FINAL = "FINAL" }
 local state = STATE.IDLE
@@ -31,7 +23,7 @@ local function resetRound(killSelf)
     state = STATE.IDLE
     activeKillName = nil
     killThreadActive = false
-    log("Round Reset")
+    log("round reset")
     if killSelf then
         local char = player.Character
         local hum = char and char:FindFirstChildOfClass("Humanoid")
@@ -42,8 +34,9 @@ local function resetRound(killSelf)
 end
 
 -- ============================================================
--- Helpers
+-- helpers
 -- ============================================================
+
 local function isIgnored(p)
     if typeof(p) == "Instance" and p:IsA("Player") then
         return ignoredNames[p.Name] == true
@@ -67,257 +60,178 @@ local function getKnife()
     return nil
 end
 
-local function hasKnife()
-    return getKnife() ~= nil
-end
-
--- Memastikan pisau di-equip ke tangan
-local function equipKnife()
-    local char = player.Character
-    if not char then return end
-    local hum = char:FindFirstChildOfClass("Humanoid")
-    local bp = player:FindFirstChild("Backpack")
-    if bp and hum then
-        local k = bp:FindFirstChild("Knife")
-        if k then
-            hum:EquipTool(k)
-            log("Knife equipped!")
-        end
-    end
-end
+local function hasKnife() return getKnife() ~= nil end
 
 local function getKillPart(char)
     if not char then return nil end
-    return char:FindFirstChild("UpperTorso") 
-        or char:FindFirstChild("Torso") 
-        or char:FindFirstChild("HumanoidRootPart") 
-        or char:FindFirstChild("Head")
+    return char:FindFirstChild("UpperTorso")
+        or char:FindFirstChild("Torso")
+        or char:FindFirstChild("HumanoidRootPart")
 end
 
 local function getTargetName()
     if not targetLabel then return nil end
     local text = targetLabel.Text
-    if not text or text == "" then return nil end
-    
-    -- Membersihkan awalan teks jika UI memakai format "Target: PlayerName"
-    text = string.gsub(text, "^Target:%s*", "")
-    text = string.gsub(text, "^Target%s*", "")
-    
-    if text ~= "" and text ~= "Nikilis" and text ~= "None" then
-        return text
-    end
+    if text and text ~= "" and text ~= "Nikilis" then return text end
     return nil
 end
 
 local function rawFire(name)
-    if not name or isIgnored(name) then return end
-    
+    if not name then return end
+    if isIgnored(name) then return end
     local knife = getKnife()
-    if not knife then 
-        log("rawFire gagal: Knife tidak ditemukan")
-        return 
-    end
-    
+    if not knife then return end
     local events = knife:FindFirstChild("Events")
-    if not events then 
-        log("rawFire gagal: Folder Events tidak ditemukan di Knife")
-        return 
-    end
-    
+    if not events then return end
     local ht = events:FindFirstChild("HandleTouched")
-    if not ht then 
-        log("rawFire gagal: Remote HandleTouched tidak ditemukan")
-        return 
-    end
-    
+    if not ht then return end
     local p = Players:FindFirstChild(name)
-    if not p or not p.Character then 
-        log("rawFire gagal: Player " .. tostring(name) .. " tidak ada di server/karakter belum load")
-        return 
-    end
-    
+    if not p or not p.Character then return end
     local part = getKillPart(p.Character)
-    if not part then 
-        log("rawFire gagal: Body part target tidak ditemukan")
-        return 
-    end
-    
-    log("Firing HandleTouched -> Target:", name, "| Part:", part.Name)
+    if not part then return end
     ht:FireServer(part)
 end
 
 -- ============================================================
--- Kill Logic
+-- kill logic
 -- ============================================================
+
 local function rapidKill(name, myRoundId)
+    if activeKillName == name then return end
+    if killThreadActive then return end
     if isIgnored(name) then return end
-    
     killThreadActive = true
     activeKillName = name
-    log("rapidKill dimulai untuk target:", name)
+    log("rapidKill: " .. name)
 
     task.spawn(function()
         while autoKillEnabled and hasKnife() do
-            if myRoundId ~= roundId or state == STATE.IDLE then 
-                log("Loop dibatalkan: Round ID atau State berubah")
-                break 
-            end
-            
-            equipKnife()
-            
+            if myRoundId ~= roundId then break end
+            if state == STATE.IDLE then break end
+
             local cur = getTargetName()
-            if cur and cur ~= name then 
-                log("Target berganti dari", name, "ke", cur)
-                break 
-            end
-            
+            if cur ~= name then break end
             local p = Players:FindFirstChild(name)
             if not p or not p.Character then break end
             local hum = p.Character:FindFirstChildOfClass("Humanoid")
-            if not hum or hum.Health <= 0 then 
-                log("Target mati atau tidak memiliki Humanoid")
-                break 
-            end
+            if not hum or hum.Health <= 0 then break end
             
             rawFire(name)
             task.wait(0.05)
         end
-        
+
         killThreadActive = false
-        if activeKillName == name then
-            activeKillName = nil
-        end
-        log("rapidKill selesai untuk target:", name)
+        if activeKillName == name then activeKillName = nil end
+        log("rapidKill ended: " .. name)
     end)
 end
 
 local function attemptKill(name, source)
-    if not autoKillEnabled then return end
-    if not name or name == "" then 
-        log("attemptKill dibatalkan: Nama target kosong")
-        return 
-    end
-    if isIgnored(name) then 
-        log("attemptKill dibatalkan: Target di-ignore (" .. name .. ")")
-        return 
-    end
-    if not hasKnife() then 
-        log("attemptKill dibatalkan: Karakter tidak punya Knife")
-        return 
-    end
-    
-    equipKnife()
-    
-    if state == STATE.IDLE then 
-        state = STATE.KILLING 
-    end
-    
-    log("attemptKill dipanggil dari source:", source, "| Target:", name)
-    rawFire(name)
-    rapidKill(name, roundId)
+    task.spawn(function()
+        if not autoKillEnabled then return end
+        if not name or name == "" then return end
+        if not hasKnife() then return end
+        if isIgnored(name) then return end
+
+        if state == STATE.IDLE then state = STATE.KILLING end
+
+        rawFire(name)
+        rapidKill(name, roundId)
+    end)
 end
 
 local function startRound()
+    if roundStarted then return end
     roundStarted = true
     roundId += 1
     activeKillName = nil
     killThreadActive = false
     state = STATE.KILLING
-    log("Round Baru Dimulai ID:", roundId)
 end
 
 local function onKnifeDetected()
-    if not autoKillEnabled then return end
-    startRound()
-    local target = getTargetName()
-    if target then
-        attemptKill(target, "knifeDetected")
-    else
-        log("Knife terdeteksi tetapi nama target belum didapat dari UI")
-    end
+    task.spawn(function()
+        if not autoKillEnabled then return end
+        startRound()
+        attemptKill(getTargetName(), "knife")
+    end)
 end
 
 local function onTargetChanged(name)
-    if not autoKillEnabled or isIgnored(name) or not hasKnife() then return end
-    attemptKill(name, "targetChanged")
+    task.spawn(function()
+        if not autoKillEnabled then return end
+        if not hasKnife() then return end
+        if isIgnored(name) then return end
+        attemptKill(name, "targetChanged")
+    end)
 end
 
 -- ============================================================
--- Watchers
+-- watchers
 -- ============================================================
 
--- Watch Target UI
 task.spawn(function()
-    while true do
-        local ok, lbl = pcall(function()
-            return player:WaitForChild("PlayerGui")
-                :WaitForChild("MainGUI")
-                :WaitForChild("Game")
-                :WaitForChild("AssassinTarget")
-                :WaitForChild("TargetName")
-        end)
-        
-        if ok and lbl then
-            targetLabel = lbl
-            log("Target UI Berhasil Ditemukan!")
-            
-            local cur = getTargetName()
-            if cur and not isIgnored(cur) then 
-                onTargetChanged(cur) 
-            end
-            
-            local conn
-            conn = targetLabel:GetPropertyChangedSignal("Text"):Connect(function()
-                if not targetLabel or not targetLabel.Parent then
-                    conn:Disconnect()
-                    return
-                end
-                local newTarget = getTargetName()
-                log("Teks Target UI Berubah:", newTarget)
-                if newTarget and not isIgnored(newTarget) then
-                    onTargetChanged(newTarget)
-                end
-            end)
-            
-            targetLabel.AncestryChanged:Wait()
-        else
-            log("Gagal menemukan Target UI, mencoba lagi...")
+    local ok, lbl = pcall(function()
+        return player.PlayerGui
+            :WaitForChild("MainGUI")
+            :WaitForChild("Game")
+            :WaitForChild("AssassinTarget")
+            :WaitForChild("TargetName")
+    end)
+    if not ok or not lbl then return end
+    targetLabel = lbl
+
+    local cur = getTargetName()
+    if cur and not isIgnored(cur) then onTargetChanged(cur) end
+
+    targetLabel:GetPropertyChangedSignal("Text"):Connect(function()
+        local newTarget = targetLabel.Text
+        if not isIgnored(newTarget) then
+            onTargetChanged(newTarget)
         end
-        task.wait(1)
-    end
+    end)
 end)
 
--- Watch Backpack & Character
 task.spawn(function()
     local function watchChar(char)
         if not char then return end
         char.ChildAdded:Connect(function(item)
-            if item.Name == "Knife" then
-                log("Knife ditambahkan ke Character")
-                onKnifeDetected()
-            end
+            if item.Name == "Knife" then onKnifeDetected() end
         end)
-    end
-
-    player.CharacterAdded:Connect(function(char)
-        resetRound()
-        watchChar(char)
-    end)
-    
-    if player.Character then
-        watchChar(player.Character)
     end
 
     local bp = player:WaitForChild("Backpack")
     bp.ChildAdded:Connect(function(item)
-        if item.Name == "Knife" then
-            log("Knife ditambahkan ke Backpack")
-            onKnifeDetected()
-        end
+        if item.Name == "Knife" then onKnifeDetected() end
     end)
+
+    watchChar(player.Character)
+    player.CharacterAdded:Connect(function(char)
+        resetRound()
+        watchChar(char)
+    end)
+
+    local ok, giveWeapon = pcall(function()
+        return ReplicatedStorage
+            :WaitForChild("Remotes", 10)
+            :WaitForChild("Gameplay", 10)
+            :WaitForChild("GiveWeapon", 10)
+    end)
+    if ok and giveWeapon then
+        giveWeapon.OnClientEvent:Connect(function(weaponName)
+            if weaponName ~= "Knife" then return end
+            task.spawn(function()
+                local waited = 0
+                while waited < 2 do
+                    if hasKnife() then onKnifeDetected() return end
+                    task.wait(0.02)
+                    waited += 0.02
+                end
+            end)
+        end)
+    end
 end)
 
--- Auto Reset saat Knife hilang
 task.spawn(function()
     while true do
         task.wait(0.4)
@@ -327,4 +241,4 @@ task.spawn(function()
     end
 end)
 
-print("[Assassin Auto] Happy farm gays.")
+print("[Assassin Auto] Script Berhasil Dijalankan (Happy gays)")
