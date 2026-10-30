@@ -15,7 +15,9 @@ local targetLabel = nil
 local roundId = 0
 local roundStarted = false
 local killThreadActive = false
-local DEBUG = false
+
+-- Diaktifkan untuk melihat pesan error/proses di F9 Console
+local DEBUG = true
 
 local function log(...)
     if DEBUG then print("[Assassin Auto]", ...) end
@@ -29,7 +31,7 @@ local function resetRound(killSelf)
     state = STATE.IDLE
     activeKillName = nil
     killThreadActive = false
-    log("round reset")
+    log("Round Reset")
     if killSelf then
         local char = player.Character
         local hum = char and char:FindFirstChildOfClass("Humanoid")
@@ -57,7 +59,7 @@ local function getKnife()
         local k = char:FindFirstChild("Knife")
         if k then return k end
     end
-    local bp = player:FindFirstChild("Backpack", true) or player:FindFirstChild("Backpack")
+    local bp = player:FindFirstChild("Backpack")
     if bp then
         local k = bp:FindFirstChild("Knife")
         if k then return k end
@@ -69,15 +71,39 @@ local function hasKnife()
     return getKnife() ~= nil
 end
 
+-- Memastikan pisau di-equip ke tangan
+local function equipKnife()
+    local char = player.Character
+    if not char then return end
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    local bp = player:FindFirstChild("Backpack")
+    if bp and hum then
+        local k = bp:FindFirstChild("Knife")
+        if k then
+            hum:EquipTool(k)
+            log("Knife equipped!")
+        end
+    end
+end
+
 local function getKillPart(char)
     if not char then return nil end
-    return char:FindFirstChild("UpperTorso") or char:FindFirstChild("Torso") or char:FindFirstChild("HumanoidRootPart")
+    return char:FindFirstChild("UpperTorso") 
+        or char:FindFirstChild("Torso") 
+        or char:FindFirstChild("HumanoidRootPart") 
+        or char:FindFirstChild("Head")
 end
 
 local function getTargetName()
     if not targetLabel then return nil end
     local text = targetLabel.Text
-    if text and text ~= "" and text ~= "Nikilis" and text ~= "Target: None" then
+    if not text or text == "" then return nil end
+    
+    -- Membersihkan awalan teks jika UI memakai format "Target: PlayerName"
+    text = string.gsub(text, "^Target:%s*", "")
+    text = string.gsub(text, "^Target%s*", "")
+    
+    if text ~= "" and text ~= "Nikilis" and text ~= "None" then
         return text
     end
     return nil
@@ -85,18 +111,38 @@ end
 
 local function rawFire(name)
     if not name or isIgnored(name) then return end
+    
     local knife = getKnife()
-    if not knife then return end
+    if not knife then 
+        log("rawFire gagal: Knife tidak ditemukan")
+        return 
+    end
+    
     local events = knife:FindFirstChild("Events")
-    if not events then return end
+    if not events then 
+        log("rawFire gagal: Folder Events tidak ditemukan di Knife")
+        return 
+    end
+    
     local ht = events:FindFirstChild("HandleTouched")
-    if not ht then return end
+    if not ht then 
+        log("rawFire gagal: Remote HandleTouched tidak ditemukan")
+        return 
+    end
     
     local p = Players:FindFirstChild(name)
-    if not p or not p.Character then return end
-    local part = getKillPart(p.Character)
-    if not part then return end
+    if not p or not p.Character then 
+        log("rawFire gagal: Player " .. tostring(name) .. " tidak ada di server/karakter belum load")
+        return 
+    end
     
+    local part = getKillPart(p.Character)
+    if not part then 
+        log("rawFire gagal: Body part target tidak ditemukan")
+        return 
+    end
+    
+    log("Firing HandleTouched -> Target:", name, "| Part:", part.Name)
     ht:FireServer(part)
 end
 
@@ -106,22 +152,32 @@ end
 local function rapidKill(name, myRoundId)
     if isIgnored(name) then return end
     
-    -- Paksa reset thread sebelumnya jika ada bentrokan target
     killThreadActive = true
     activeKillName = name
-    log("rapidKill started: " .. name)
+    log("rapidKill dimulai untuk target:", name)
 
     task.spawn(function()
         while autoKillEnabled and hasKnife() do
-            if myRoundId ~= roundId or state == STATE.IDLE then break end
+            if myRoundId ~= roundId or state == STATE.IDLE then 
+                log("Loop dibatalkan: Round ID atau State berubah")
+                break 
+            end
+            
+            equipKnife()
             
             local cur = getTargetName()
-            if cur and cur ~= name then break end
+            if cur and cur ~= name then 
+                log("Target berganti dari", name, "ke", cur)
+                break 
+            end
             
             local p = Players:FindFirstChild(name)
             if not p or not p.Character then break end
             local hum = p.Character:FindFirstChildOfClass("Humanoid")
-            if not hum or hum.Health <= 0 then break end
+            if not hum or hum.Health <= 0 then 
+                log("Target mati atau tidak memiliki Humanoid")
+                break 
+            end
             
             rawFire(name)
             task.wait(0.05)
@@ -131,19 +187,32 @@ local function rapidKill(name, myRoundId)
         if activeKillName == name then
             activeKillName = nil
         end
-        log("rapidKill ended: " .. name)
+        log("rapidKill selesai untuk target:", name)
     end)
 end
 
 local function attemptKill(name, source)
-    if not autoKillEnabled or not name or name == "" or isIgnored(name) or not hasKnife() then 
+    if not autoKillEnabled then return end
+    if not name or name == "" then 
+        log("attemptKill dibatalkan: Nama target kosong")
         return 
     end
+    if isIgnored(name) then 
+        log("attemptKill dibatalkan: Target di-ignore (" .. name .. ")")
+        return 
+    end
+    if not hasKnife() then 
+        log("attemptKill dibatalkan: Karakter tidak punya Knife")
+        return 
+    end
+    
+    equipKnife()
     
     if state == STATE.IDLE then 
         state = STATE.KILLING 
     end
     
+    log("attemptKill dipanggil dari source:", source, "| Target:", name)
     rawFire(name)
     rapidKill(name, roundId)
 end
@@ -154,6 +223,7 @@ local function startRound()
     activeKillName = nil
     killThreadActive = false
     state = STATE.KILLING
+    log("Round Baru Dimulai ID:", roundId)
 end
 
 local function onKnifeDetected()
@@ -161,7 +231,9 @@ local function onKnifeDetected()
     startRound()
     local target = getTargetName()
     if target then
-        attemptKill(target, "knife")
+        attemptKill(target, "knifeDetected")
+    else
+        log("Knife terdeteksi tetapi nama target belum didapat dari UI")
     end
 end
 
@@ -171,10 +243,10 @@ local function onTargetChanged(name)
 end
 
 -- ============================================================
--- Watchers & Events
+-- Watchers
 -- ============================================================
 
--- Watch Target GUI
+-- Watch Target UI
 task.spawn(function()
     while true do
         local ok, lbl = pcall(function()
@@ -187,6 +259,8 @@ task.spawn(function()
         
         if ok and lbl then
             targetLabel = lbl
+            log("Target UI Berhasil Ditemukan!")
+            
             local cur = getTargetName()
             if cur and not isIgnored(cur) then 
                 onTargetChanged(cur) 
@@ -198,14 +272,16 @@ task.spawn(function()
                     conn:Disconnect()
                     return
                 end
-                local newTarget = targetLabel.Text
-                if not isIgnored(newTarget) then
+                local newTarget = getTargetName()
+                log("Teks Target UI Berubah:", newTarget)
+                if newTarget and not isIgnored(newTarget) then
                     onTargetChanged(newTarget)
                 end
             end)
             
-            -- Menunggu sampai UI hancur/respawn sebelum mere-bind ulang
             targetLabel.AncestryChanged:Wait()
+        else
+            log("Gagal menemukan Target UI, mencoba lagi...")
         end
         task.wait(1)
     end
@@ -217,6 +293,7 @@ task.spawn(function()
         if not char then return end
         char.ChildAdded:Connect(function(item)
             if item.Name == "Knife" then
+                log("Knife ditambahkan ke Character")
                 onKnifeDetected()
             end
         end)
@@ -234,38 +311,13 @@ task.spawn(function()
     local bp = player:WaitForChild("Backpack")
     bp.ChildAdded:Connect(function(item)
         if item.Name == "Knife" then
+            log("Knife ditambahkan ke Backpack")
             onKnifeDetected()
         end
     end)
-
-    -- Remote Event Listener
-    local ok, giveWeapon = pcall(function()
-        return ReplicatedStorage
-            :WaitForChild("Remotes", 5)
-            :WaitForChild("Gameplay", 5)
-            :WaitForChild("GiveWeapon", 5)
-    end)
-    
-    if ok and giveWeapon then
-        giveWeapon.OnClientEvent:Connect(function(weaponName)
-            if weaponName == "Knife" then
-                task.spawn(function()
-                    local waited = 0
-                    while waited < 2 do
-                        if hasKnife() then
-                            onKnifeDetected()
-                            return
-                        end
-                        task.wait(0.05)
-                        waited += 0.05
-                    end
-                end)
-            end
-        end)
-    end
 end)
 
--- Loop pemeriksaan ketersediaan pisau (Auto Reset)
+-- Auto Reset saat Knife hilang
 task.spawn(function()
     while true do
         task.wait(0.4)
@@ -275,4 +327,4 @@ task.spawn(function()
     end
 end)
 
-print("[Assassin Auto] happy farmin you gay")
+print("[Assassin Auto] Happy farm gays.")
