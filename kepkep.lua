@@ -8,6 +8,12 @@ local VIM = game:GetService("VirtualInputManager")
 local LP = Players.LocalPlayer
 while not LP do task.wait() LP = Players.LocalPlayer end
 
+local FPS_CAP = 30
+
+if typeof(setfpscap) == "function" then
+    setfpscap(FPS_CAP)
+end
+
 local SPEED, TIMEOUT, SKIP = 15, 10, 1
 local MIN_DIST, AURA_RADIUS = 6, 8
 local EMOTE_ID, EMOTE_POS = 87058607990254, 0.84
