@@ -4,11 +4,25 @@ local TweenService = game:GetService("TweenService")
 local GuiService = game:GetService("GuiService")
 local TeleportService = game:GetService("TeleportService")
 local VIM = game:GetService("VirtualInputManager")
+local RunService = game:GetService("RunService")
+
+local targetFPS = 15
+local frameTime = 1 / targetFPS
+local lastTime = os.clock()
+
+RunService.RenderStepped:Connect(function()
+    local currentTime = os.clock()
+    local elapsed = currentTime - lastTime
+    
+    if elapsed < frameTime then
+        task.wait(frameTime - elapsed)
+    end
+    
+    lastTime = os.clock()
+end)
 
 local LP = Players.LocalPlayer
 while not LP do task.wait() LP = Players.LocalPlayer end
-
-local FPS_CAP = 30
 
 if typeof(setfpscap) == "function" then
     setfpscap(FPS_CAP)
