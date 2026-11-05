@@ -5,23 +5,15 @@ local GuiService = game:GetService("GuiService")
 local TeleportService = game:GetService("TeleportService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local VIM = game:GetService("VirtualInputManager")
-local RunService = game:GetService("RunService")
 
--- FPS cap 15
-local targetFPS = 15
-local frameTime = 1 / targetFPS
-local lastTime = os.clock()
-RunService.RenderStepped:Connect(function()
-    local currentTime = os.clock()
-    local elapsed = currentTime - lastTime
-    if elapsed < frameTime then task.wait(frameTime - elapsed) end
-    lastTime = os.clock()
+-- FPS cap 15 (aman: pakai pcall, tanpa RenderStepped)
+pcall(function()
+    if setfpscap then setfpscap(15) end
 end)
 
 local LP = Players.LocalPlayer
-local player = LP
 while not LP do task.wait() LP = Players.LocalPlayer end
-if typeof(setfpscap) == "function" then setfpscap(15) end
+local player = LP
 
 -- CONFIG
 local SPEED, TIMEOUT, SKIP  = 15, 10, 1
@@ -239,7 +231,7 @@ local function nearest(root)
     return best, bestPart
 end
 
--- MAIN FARM LOOP (dengan skip agresif)
+-- MAIN FARM LOOP (skip agresif kalau koin gak ke-collect)
 task.spawn(function()
     while active() do
         local tween
@@ -255,17 +247,15 @@ task.spawn(function()
             if not coin or not part then task.wait(0.2) return end
             pcall(function() hum:ChangeState(11) end)
 
-            -- Tween ke koin
             local start = root.Position
             local goal  = part.Position
             local dir   = Vector3.new(goal.X - start.X, 0, goal.Z - start.Z)
-            local duration = 0
             if dir.Magnitude > 0.1 then
                 local target = CFrame.lookAt(
                     Vector3.new(goal.X, start.Y, goal.Z),
                     Vector3.new(goal.X, start.Y, goal.Z) + dir
                 )
-                duration = math.max(dir.Magnitude / SPEED, 0.1)
+                local duration = math.max(dir.Magnitude / SPEED, 0.1)
                 tween = TweenService:Create(
                     root,
                     TweenInfo.new(duration, Enum.EasingStyle.Linear),
@@ -276,11 +266,9 @@ task.spawn(function()
                 tween:Cancel()
             end
 
-            -- GRACE PERIOD: cek apakah koin berhasil diambil
-            -- (sebelumnya loop ini error karena `began` undefined)
             local began = os.clock()
             local collected = false
-            while active() and os.clock() - began < 1.5 do  -- cuma tunggu 1.5 detik
+            while active() and os.clock() - began < 1.5 do
                 if not farmEnabled or hum.Health <= 0 then break end
                 if LP.Character ~= char then break end
                 if isCollected(coin) or not part.Parent then
@@ -294,16 +282,10 @@ task.spawn(function()
                 task.wait(0.05)
             end
 
-            -- Kalau masih belum terkumpul, SKIP koin ini dan lanjut ke nearest berikutnya
             if not collected then
-                skipped[coin] = os.clock() + SKIP  -- skip selama SKIP detik (default 1s)
+                skipped[coin] = os.clock() + SKIP
             else
                 skipped[coin] = nil
-            end
-
-            -- Fallback: kalau masih jauh setelah grace period, skip juga
-            if not collected and active() and coin.Parent and not isCollected(coin) then
-                skipped[coin] = os.clock() + SKIP
             end
         end)
         if tween then pcall(function() tween:Cancel() end) end
@@ -446,4 +428,4 @@ if LP.Character then watchChar(LP.Character) end
 LP.CharacterAdded:Connect(watchChar)
 task.spawn(watchBackpack)
 
-print("[Loaded] Coin Farm + Anti-AFK + Assassin + CoinFull/Error detection (FPS cap 15) — dengan skip agresif")
+print("[Loaded] Coin Farm + Anti-AFK + Assassin + CoinFull/Error detection (FPS cap 15) - dengan skip agresif")
