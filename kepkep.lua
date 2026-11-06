@@ -333,7 +333,7 @@ local function rawFire(targetPlayer)
     if not knife then return end
     if knife.Parent ~= player.Character and player.Character then
         local hum = player.Character:FindFirstChildOfClass("Humanoid")
-        if hum then hum:EquipTool(knife) end
+        end
     end
     local events = knife:FindFirstChild("Events")
     if not events then return end
