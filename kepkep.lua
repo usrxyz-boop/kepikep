@@ -20,9 +20,8 @@ local SPEED, TIMEOUT, SKIP  = 15, 10, 1
 local MIN_DIST, AURA_RADIUS = 6, 8
 local EMOTE_ID, EMOTE_POS   = 87058607990254, 0.84
 local farmEnabled, emoteEnabled = true, true
-local COIN_TIMEOUT = 60
 
-local whitelist = {}
+local whitelist = {"alamak942","ets_gakenangkaburuks","ets_gakena7"}
 local STUCK_TIMEOUT   = 3
 local autoKillEnabled = true
 local skippedTargets  = {}
